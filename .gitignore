@@ -1,2 +1,5 @@
 #anything in a data folder
 **/data/**
+
+#anything in a results folder
+**/results/**

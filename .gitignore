@@ -3,3 +3,5 @@
 
 #anything in a results folder
 **/results/**
+
+*.pyc

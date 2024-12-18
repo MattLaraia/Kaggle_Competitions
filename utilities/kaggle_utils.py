@@ -1,7 +1,58 @@
 import os
 import kaggle
+import glob
 import yaml
 from pathlib import Path
+import zipfile
+from kaggle.api.kaggle_api_extended import KaggleApi
+
+
+def download(competition_name, download_path="../data/raw_dataset"):
+    """
+    Download and unzip data from a Kaggle competition, but only if the data 
+    hasn't already been downloaded (checks for CSV files in the download path).
+
+    :param competition_name: Kaggle competition name (e.g., 'playground-series-s4e12')
+    :param download_path: Directory where the data will be downloaded and unzipped
+    """
+    # Check if the directory exists and contains CSV files
+    if os.path.exists(download_path):
+        csv_files = glob.glob(os.path.join(download_path, "*.csv"))
+        if csv_files:
+            print(f"CSV files already exist in {download_path}. Skipping download.")
+            return
+    else:
+        os.makedirs(download_path)
+    
+    # Set up Kaggle API client
+    api = KaggleApi()
+    api.authenticate()
+
+    # Download the dataset for the competition
+    print(f"Downloading data for competition {competition_name}...")
+    api.competition_download_files(competition_name, path=download_path)
+
+    # Find the zip file in the download path
+    zip_file_path = None
+    for file in os.listdir(download_path):
+        if file.endswith(".zip"):
+            zip_file_path = os.path.join(download_path, file)
+            break
+
+    if not zip_file_path:
+        print("No zip file found in the downloaded data.")
+        return
+
+    # Unzip the downloaded file
+    print(f"Unzipping {zip_file_path}...")
+    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+        zip_ref.extractall(download_path)
+
+    # Optionally, remove the zip file after extraction
+    os.remove(zip_file_path)
+    print(f"Data has been downloaded and unzipped to {download_path}")
+
+
 
 def submit(file_name, message=''):
     """
@@ -28,7 +79,7 @@ def submit(file_name, message=''):
         print(f"Submission to '{competition_name}' successful!")
     except Exception as e:
         print(f"Error during submission: {e}")
-        
+
 def infer_competition_name(yaml_file='config/comp_cfg.yaml'):
     """
     Infers the competition name from the directory structure.

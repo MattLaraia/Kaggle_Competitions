@@ -5,3 +5,8 @@
 **/results/**
 
 *.pyc
+
+#venv
+**/venv/**
+
+**/.venv/**

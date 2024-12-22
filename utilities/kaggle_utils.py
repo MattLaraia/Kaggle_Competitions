@@ -5,6 +5,7 @@ import yaml
 from pathlib import Path
 import zipfile
 from kaggle.api.kaggle_api_extended import KaggleApi
+import pandas as pd
 
 
 def download(competition_name, download_path="../data/raw_dataset"):
@@ -77,6 +78,14 @@ def submit(file_name, message=''):
             message=message
         )
         print(f"Submission to '{competition_name}' successful!")
+
+        submissions =  kaggle.api.competitions_submissions_list(competition_name)
+
+        submissions = pd.Dataframe(submissions)
+
+        sub_score = submissions.iloc[0]["publicScoreNullable"]
+
+        print(f"submission score: {sub_score}")
     except Exception as e:
         print(f"Error during submission: {e}")
 

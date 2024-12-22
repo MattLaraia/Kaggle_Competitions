@@ -81,7 +81,7 @@ def submit(file_name, message=''):
 
         submissions =  kaggle.api.competitions_submissions_list(competition_name)
 
-        submissions = pd.Dataframe(submissions)
+        submissions = pd.DataFrame(submissions)
 
         sub_score = submissions.iloc[0]["publicScoreNullable"]
 

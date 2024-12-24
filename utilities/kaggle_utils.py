@@ -1,4 +1,5 @@
 import os
+import time
 import kaggle
 import glob
 import yaml
@@ -63,6 +64,7 @@ def submit(file_name, message=''):
     :param message: A custom message for the submission
     """
     try:
+        start_time = time.time()
         # Infer competition name and file path
         competition_name = infer_competition_name()
         full_file_name = infer_submission_file(file_name)
@@ -70,6 +72,10 @@ def submit(file_name, message=''):
         # Print debugging info
         print(f"Competition Name: {competition_name}")
         print(f"Full Submission File Path: {full_file_name}")
+
+        #get time before submission
+        current_time = pd.Timestamp.utcnow()
+
 
         # Submit to Kaggle API
         kaggle.api.competition_submit(
@@ -79,13 +85,32 @@ def submit(file_name, message=''):
         )
         print(f"Submission to '{competition_name}' successful!")
 
+        #wait 2 seconds before pulling submission
+        time.sleep(2)
+
         submissions =  kaggle.api.competitions_submissions_list(competition_name)
 
-        submissions = pd.DataFrame(submissions)
+        submissions_df = pd.DataFrame(submissions)
 
-        sub_score = submissions.iloc[0]["publicScoreNullable"]
 
-        print(f"submission score: {sub_score}")
+        
+        submissions_df.date = pd.to_datetime(submissions_df.date)
+
+        #filter out old results
+        submissions_df=submissions_df[submissions_df.date>current_time]
+
+        sub_score_row = submissions_df.iloc[0]
+        
+        if sub_score_row.status=="complete":
+            #print publicScoreNullable
+            #print max score from submission df
+            sub_score = submissions_df.iloc[0]["publicScore"]
+
+            print(f"submission score: {sub_score}")
+        else:
+            print(f"successful submission not found -- check kaggle\n https://www.kaggle.com/competitions/{competition_name}/submissions")
+
+        print(submissions)
     except Exception as e:
         print(f"Error during submission: {e}")
 

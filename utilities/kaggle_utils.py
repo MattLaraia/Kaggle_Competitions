@@ -67,6 +67,9 @@ class KaggleUtils:
 
         submissions_df = pd.DataFrame(submissions)
         submissions_df["date"] = pd.to_datetime(submissions_df["date"])
+
+        submissions_df=submissions_df.sort_values(by='date',ascending=False)
+
         return submissions_df
 
     def get_latest_score(self, return_submission_row=False):

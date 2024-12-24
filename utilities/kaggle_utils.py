@@ -1,6 +1,4 @@
 import os
-import time
-import kaggle
 import glob
 import yaml
 from pathlib import Path
@@ -8,188 +6,120 @@ import zipfile
 from kaggle.api.kaggle_api_extended import KaggleApi
 import pandas as pd
 
+class KaggleUtils:
+    def __init__(self, yaml_file='config/comp_cfg.yaml', data_path="../data/raw_dataset", competition_name = None):
+        self.api = KaggleApi()
+        self.api.authenticate()
+        self.yaml_file = yaml_file
+        self.data_path = data_path
+        self.competition_name = competition_name if competition_name else self.infer_competition_name()
 
-def download(competition_name, download_path="../data/raw_dataset"):
-    """
-    Download and unzip data from a Kaggle competition, but only if the data 
-    hasn't already been downloaded (checks for CSV files in the download path).
+    def download(self):
+        """
+        Download and unzip data from a Kaggle competition, avoiding re-download if CSV files already exist.
+        """
+        if os.path.exists(self.data_path):
+            csv_files = glob.glob(os.path.join(self.data_path, "*.csv"))
+            if csv_files:
+                print(f"CSV files already exist in {self.data_path}. Skipping download.")
+                return
+        else:
+            os.makedirs(self.data_path)
 
-    :param competition_name: Kaggle competition name (e.g., 'playground-series-s4e12')
-    :param download_path: Directory where the data will be downloaded and unzipped
-    """
-    # Check if the directory exists and contains CSV files
-    if os.path.exists(download_path):
-        csv_files = glob.glob(os.path.join(download_path, "*.csv"))
-        if csv_files:
-            print(f"CSV files already exist in {download_path}. Skipping download.")
+        print(f"Downloading data for competition {self.competition_name}...")
+        self.api.competition_download_files(self.competition_name, path=self.data_path)
+
+        zip_file_path = next((os.path.join(self.data_path, file) for file in os.listdir(self.data_path) if file.endswith(".zip")), None)
+        if not zip_file_path:
+            print("No zip file found in the downloaded data.")
             return
-    else:
-        os.makedirs(download_path)
-    
-    # Set up Kaggle API client
-    api = KaggleApi()
-    api.authenticate()
 
-    # Download the dataset for the competition
-    print(f"Downloading data for competition {competition_name}...")
-    api.competition_download_files(competition_name, path=download_path)
+        print(f"Unzipping {zip_file_path}...")
+        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            zip_ref.extractall(self.data_path)
+        os.remove(zip_file_path)
+        print(f"Data has been downloaded and unzipped to {self.data_path}")
 
-    # Find the zip file in the download path
-    zip_file_path = None
-    for file in os.listdir(download_path):
-        if file.endswith(".zip"):
-            zip_file_path = os.path.join(download_path, file)
-            break
+    def submit(self, file_name, message=''):
+        """
+        Submit a file to the Kaggle competition.
+        """
+        try:
+            full_file_name = self.infer_submission_file(file_name)
+            print(f"Submitting file: {full_file_name} to competition: {self.competition_name}")
 
-    if not zip_file_path:
-        print("No zip file found in the downloaded data.")
-        return
+            self.api.competition_submit(
+                file_name=full_file_name,
+                competition=self.competition_name,
+                message=message
+            )
+            print(f"Submission to '{self.competition_name}' successful!")
+        except Exception as e:
+            print(f"Error during submission: {e}")
 
-    # Unzip the downloaded file
-    print(f"Unzipping {zip_file_path}...")
-    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-        zip_ref.extractall(download_path)
-
-    # Optionally, remove the zip file after extraction
-    os.remove(zip_file_path)
-    print(f"Data has been downloaded and unzipped to {download_path}")
-
-
-
-def submit(file_name, message=''):
-    """
-    Submits a file to the Kaggle competition inferred from the directory structure.
-
-    :param file_name: The submission file name (e.g., 'submission.csv')
-    :param message: A custom message for the submission
-    """
-    try:
-        start_time = time.time()
-        # Infer competition name and file path
-        competition_name = infer_competition_name()
-        full_file_name = infer_submission_file(file_name)
-
-        # Print debugging info
-        print(f"Competition Name: {competition_name}")
-        print(f"Full Submission File Path: {full_file_name}")
-
-        #get time before submission
-        current_time = pd.Timestamp.utcnow()
-
-
-        # Submit to Kaggle API
-        kaggle.api.competition_submit(
-            file_name=full_file_name,
-            competition=competition_name,
-            message=message
-        )
-        print(f"Submission to '{competition_name}' successful!")
-
-        #wait 2 seconds before pulling submission
-        time.sleep(2)
-
-        submissions =  kaggle.api.competitions_submissions_list(competition_name)
+    def get_submission_scores(self):
+        """
+        Retrieve submission scores for the competition.
+        """
+        submissions = self.api.competitions_submissions_list(self.competition_name)
+        if not submissions:
+            return None
 
         submissions_df = pd.DataFrame(submissions)
+        submissions_df["date"] = pd.to_datetime(submissions_df["date"])
+        return submissions_df
 
+    def get_latest_score(self, return_submission_row=False):
+        """
+        Retrieve the latest submission score.
+        """
+        submissions_df = self.get_submission_scores()
+        if submissions_df is None or submissions_df.empty:
+            print(f"No submissions found for competition {self.competition_name}")
+            return
 
-        
-        submissions_df.date = pd.to_datetime(submissions_df.date)
-
-        #filter out old results
-        submissions_df=submissions_df[submissions_df.date>current_time]
-
-        sub_score_row = submissions_df.iloc[0]
-        
-        if sub_score_row.status=="complete":
-            #print publicScoreNullable
-            #print max score from submission df
-            sub_score = submissions_df.iloc[0]["publicScore"]
-
-            print(f"submission score: {sub_score}")
+        latest_submission = submissions_df.iloc[0]
+        if latest_submission.status == "complete":
+            score = latest_submission.publicScore
+            filename = latest_submission.fileName
+            print(f"Latest submission '{filename}' score: {score}")
         else:
-            print(f"successful submission not found -- check kaggle\n https://www.kaggle.com/competitions/{competition_name}/submissions")
+            print(f"Latest submission status is not 'complete'. Check: https://www.kaggle.com/competitions/{self.competition_name}/submissions")
 
-        print(submissions)
-    except Exception as e:
-        print(f"Error during submission: {e}")
+        return latest_submission if return_submission_row else latest_submission.publicScore
 
-def infer_competition_name(yaml_file='config/comp_cfg.yaml'):
-    """
-    Infers the competition name from the directory structure.
-    Assumes the directory structure has the competition name as the folder
-    nested under 'Kaggle' and looks it up in the given YAML file.
+    def infer_competition_name(self):
+        """
+        Infer the competition name based on the current directory and YAML configuration.
+        """
+        cwd = os.getcwd()
+        path_parts = cwd.split(os.sep)
 
-    Args:
-        yaml_file (str): The relative path to the YAML file containing competition names.
-    
-    Returns:
-        str: The competition name as per the YAML mapping.
-    """
-    # Get the current working directory
-    cwd = os.getcwd()
-    # print(f"Current working directory: {cwd}")
-    
-    # Split the path into components
-    path_parts = cwd.split(os.sep)
+        try:
+            kaggle_index = path_parts.index("Kaggle")
+            competition_folder = path_parts[kaggle_index + 1]
+            yaml_path = os.path.join(os.sep.join(path_parts[:kaggle_index + 1]), self.yaml_file)
 
-    # Find the 'Kaggle' folder in the path
-    try:
+            with open(yaml_path, 'r') as file:
+                yaml_data = yaml.safe_load(file)
+
+            if 'competitions' in yaml_data and competition_folder in yaml_data['competitions']:
+                return yaml_data['competitions'][competition_folder]
+            else:
+                raise ValueError(f"Competition name '{competition_folder}' not found in YAML file.")
+        except (ValueError, IndexError) as e:
+            raise ValueError("Could not infer competition name. Ensure you are running from a directory nested under 'Kaggle/<competition_name>'.") from e
+
+    def infer_submission_file(self, file_name):
+        """
+        Construct the relative path to the submission file based on the current working directory.
+        """
+        file_path = Path(file_name).name
+        cwd = os.getcwd()
+        path_parts = cwd.split(os.sep)
+
         kaggle_index = path_parts.index("Kaggle")
-        competition_name = path_parts[kaggle_index + 1]  # The next folder is the competition name
+        nested_levels = len(path_parts) - (kaggle_index + 2)
+        full_relative_path = os.path.join('../' * nested_levels, 'results', file_path)
 
-        # Rebuild the path to the 'Kaggle' directory
-        kaggle_path = os.path.join(os.sep.join(path_parts[:kaggle_index + 1]))
-
-        # Construct the absolute path to the YAML file
-        yaml_path = os.path.normpath(os.path.join(kaggle_path, yaml_file))
-
-        # print(f"Resolved YAML file path: {yaml_path}")
-
-        # Load the YAML file and extract the competition name from the mapping
-        with open(yaml_path, 'r') as file:
-            yaml_data = yaml.safe_load(file)
-
-        # Ensure 'competitions' key exists in the YAML
-        if 'competitions' in yaml_data and competition_name in yaml_data['competitions']:
-            return yaml_data['competitions'][competition_name]
-        else:
-            raise ValueError(f"Competition name '{competition_name}' not found in YAML file.")
-    
-    except (ValueError, IndexError) as e:
-        raise ValueError("Could not infer competition name. Ensure you are running from a directory nested under 'Kaggle/<competition_name>'.") from e
-
-def infer_submission_file(file_name):
-    """
-    Infer submission path from the relative path.
-
-    :param file_name: The expected filename (assumes file is located in the 'results' directory)
-    :return: The full relative path to the submission file
-    """
-    # Turn file_name into a Path object
-    file_path = Path(file_name)
-
-    # Extract the part of the path nested within 'results' (e.g., 'results/mean.csv' should return 'mean.csv')
-    relative_file_name = file_path.name
-
-    # Based on cwd, determine how many more nested directories after "Kaggle"
-    cwd = os.getcwd()
-    # print(f"Current working directory: {cwd}")
-    
-    # Split the path into components
-    path_parts = cwd.split(os.sep)
-
-    # Find the 'Kaggle' folder in the path
-    kaggle_index = path_parts.index("Kaggle")
-
-    # Calculate the nested levels after 'Kaggle'
-    nested_levels = len(path_parts) - (kaggle_index + 2)  # +1 to account for the 'Kaggle' and competition_name folders
-
-    # Construct the full relative path to the submission file
-    full_relative_path = os.path.join('../' * nested_levels, 'results', relative_file_name)
-
-    # print(f"Resolved submission file path: {full_relative_path}")
-    return full_relative_path
-
-
-
+        return full_relative_path
